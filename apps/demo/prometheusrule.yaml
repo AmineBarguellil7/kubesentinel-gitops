@@ -1,0 +1,40 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demo-alerts
+  namespace: demo
+  labels:
+    app.kubernetes.io/part-of: demo
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: demo.rules
+      rules:
+        - alert: DemoHighErrorRate
+          # Share of 5xx responses per service over the last 2 minutes.
+          expr: |
+            sum by (namespace, service) (rate(http_requests_total{namespace="demo", status=~"5.."}[2m]))
+              /
+            sum by (namespace, service) (rate(http_requests_total{namespace="demo"}[2m]))
+              > 0.10
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High 5xx error rate on demo service {{ $labels.service }}"
+            description: >-
+              {{ $value | humanizePercentage }} of the requests handled by service
+              {{ $labels.service }} in namespace {{ $labels.namespace }} returned a 5xx
+              over the last 2 minutes (threshold: 10%).
+        - alert: DemoPodCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="demo"}[10m]) > 2
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod of demo service {{ $labels.container }} is crash looping"
+            description: >-
+              Pod {{ $labels.pod }} of service {{ $labels.container }} in namespace
+              {{ $labels.namespace }} restarted {{ $value | printf "%.0f" }} times in the
+              last 10 minutes (threshold: 2).

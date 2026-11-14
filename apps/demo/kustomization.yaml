@@ -9,3 +9,15 @@ resources:
   - payments.yaml
   - orders.yaml
   - api.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+
+# Grafana's dashboard sidecar loads every ConfigMap labelled grafana_dashboard=1.
+configMapGenerator:
+  - name: grafana-dashboard-demo-shop
+    files:
+      - dashboards/demo-shop.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

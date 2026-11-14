@@ -1,0 +1,151 @@
+# kube-prometheus-stack: Prometheus Operator, Prometheus, Alertmanager, Grafana,
+# kube-state-metrics and node-exporter. Sized for a laptop kind cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 93.3.0
+    helm:
+      releaseName: monitoring
+      valuesObject:
+        # kind does not expose these control-plane components for scraping
+        # (they listen on 127.0.0.1 inside the control-plane node).
+        kubeEtcd:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        defaultRules:
+          rules:
+            etcd: false
+            kubeControllerManager: false
+            kubeProxy: false
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+            windows: false
+
+        prometheusOperator:
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+          prometheusConfigReloader:
+            resources:
+              requests:
+                cpu: 5m
+                memory: 24Mi
+              limits:
+                cpu: 50m
+                memory: 64Mi
+          admissionWebhooks:
+            patch:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+
+        prometheus:
+          prometheusSpec:
+            retention: 2d
+            # Pick up ServiceMonitors, PodMonitors, Probes, ScrapeConfigs and PrometheusRules
+            # from every namespace, whatever their labels (not only this chart's own).
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            resources:
+              requests:
+                cpu: 100m
+                memory: 400Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+
+        alertmanager:
+          alertmanagerSpec:
+            retention: 24h
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 96Mi
+
+        grafana:
+          # Local cluster only. Never reuse this pattern outside a laptop.
+          adminUser: admin
+          adminPassword: kubesentinel
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 320Mi
+          sidecar:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 160Mi
+            dashboards:
+              # Dashboards are ConfigMaps labelled grafana_dashboard=1, in any namespace.
+              searchNamespace: ALL
+          additionalDataSources:
+            - name: Loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki.monitoring.svc:3100
+              isDefault: false
+
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The Prometheus Operator CRDs are too large for client-side apply's
+      # last-applied-configuration annotation.
+      - ServerSideApply=true

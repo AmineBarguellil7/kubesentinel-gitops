@@ -1,0 +1,28 @@
+# Scrapes /metrics on the "http" port of the three Node.js services every 15s.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-services
+  namespace: demo
+  labels:
+    app.kubernetes.io/part-of: demo
+  annotations:
+    # Lets the first sync pass on a fresh cluster where the Prometheus Operator CRDs
+    # (installed by the monitoring app) do not exist yet.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [api, orders, payments]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      metricRelabelings:
+        # The apps export their own "service" label (demo-api, ...). Prometheus already sets
+        # service=<Kubernetes Service name>, so the app's copy would only show up as a
+        # redundant "exported_service". Queries use service=api|orders|payments.
+        - action: labeldrop
+          regex: exported_service

@@ -20,3 +20,11 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    # The ServiceMonitor and PrometheusRule need the CRDs installed by the monitoring app.
+    # On a fresh cluster the first syncs can fail until those exist, so keep retrying.
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
