@@ -97,10 +97,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 300m
-              memory: 320Mi
+              memory: 512Mi
           sidecar:
             resources:
               requests:
