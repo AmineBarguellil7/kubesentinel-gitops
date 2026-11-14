@@ -1,0 +1,26 @@
+# App of apps: the only manifest applied by hand (or by Terraform).
+# It makes Argo CD watch apps/ and create every Application defined there.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AmineBarguellil7/kubesentinel-gitops.git
+    targetRevision: main
+    path: apps
+    # Only the Application manifests at the top of apps/ are read;
+    # the workload folders below it belong to the child Applications.
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
