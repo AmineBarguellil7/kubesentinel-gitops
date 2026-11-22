@@ -28,8 +28,15 @@ spec:
               {{ $labels.service }} in namespace {{ $labels.namespace }} returned a 5xx
               over the last 2 minutes (threshold: 10%).
         - alert: DemoPodCrashLooping
+          # The metric comes from kube-state-metrics' scrape, so its own "service" label would be
+          # monitoring-kube-state-metrics. Aggregate it away and use the container name instead.
           expr: |
-            increase(kube_pod_container_status_restarts_total{namespace="demo"}[10m]) > 2
+            label_replace(
+              sum by (namespace, pod, container) (
+                increase(kube_pod_container_status_restarts_total{namespace="demo"}[10m])
+              ),
+              "service", "$1", "container", "(.+)"
+            ) > 2
           labels:
             severity: warning
           annotations:
