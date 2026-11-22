@@ -67,7 +67,19 @@ spec:
   # The chart generates fresh TLS certificates (genCA/genSignedCert) on every render. Without
   # this, every refresh would show a diff and every sync would rotate the certificates under the
   # running pods. The cluster keeps the ones created at install time.
+  # Same for the random "rollme" pod annotation (randAlphaNum), which would roll the controller
+  # and the daemon on every sync.
   ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: chaos-controller-manager
+      namespace: chaos-mesh
+      jsonPointers: [/spec/template/metadata/annotations/rollme]
+    - group: apps
+      kind: DaemonSet
+      name: chaos-daemon
+      namespace: chaos-mesh
+      jsonPointers: [/spec/template/metadata/annotations/rollme]
     - kind: Secret
       name: chaos-mesh-webhook-certs
       namespace: chaos-mesh
