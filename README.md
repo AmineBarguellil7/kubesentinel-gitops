@@ -108,9 +108,10 @@ Logs in Grafana: Explore, datasource Loki, for example `{namespace="demo", app="
   cluster is local: anyone who reaches the port can create experiments with the controller's
   permissions. Open it with
   `kubectl -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333` (http://localhost:2333).
-- The chart generates new TLS certificates every time it is rendered. The Application ignores
-  differences on those Secrets and on the webhooks' `caBundle`, so the certificates created at
-  install time stay in place instead of being rotated on each sync.
+- The chart generates new TLS certificates and a random `rollme` pod annotation every time it is
+  rendered. The Application ignores differences on those Secrets, the webhooks' `caBundle` and the
+  `rollme` annotation, so the install-time certificates stay in place and the controller and
+  daemon are not restarted on every sync.
 
 ## Notes
 
