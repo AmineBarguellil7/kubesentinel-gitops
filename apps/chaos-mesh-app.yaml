@@ -1,0 +1,100 @@
+# Chaos Mesh: fault injection for the demo shop. The experiments themselves (PodChaos,
+# NetworkChaos, StressChaos, ...) are NOT in this repo: they live in kubesentinel/chaos/scenarios
+# and are applied by hand, otherwise Argo CD would keep re-creating them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chaos-mesh
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.chaos-mesh.org
+    chart: chaos-mesh
+    targetRevision: 2.8.8
+    helm:
+      releaseName: chaos-mesh
+      valuesObject:
+        controllerManager:
+          replicaCount: 1
+          leaderElection:
+            enabled: false
+          # Only namespaces annotated chaos-mesh.org/inject=enabled can be targeted.
+          # Today that is just "demo" (apps/demo/namespace.yaml).
+          enableFilterNamespace: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+
+        chaosDaemon:
+          # kind nodes run containerd, not Docker.
+          runtime: containerd
+          socketPath: /run/containerd/containerd.sock
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+
+        dashboard:
+          # No login on the dashboard. Local cluster only: anyone who can reach the port can
+          # create experiments with the controller's (cluster-wide) permissions.
+          securityMode: false
+          service:
+            type: ClusterIP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+        # Only needed for DNSChaos.
+        dnsServer:
+          create: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chaos-mesh
+  # The chart generates fresh TLS certificates (genCA/genSignedCert) on every render. Without
+  # this, every refresh would show a diff and every sync would rotate the certificates under the
+  # running pods. The cluster keeps the ones created at install time.
+  ignoreDifferences:
+    - kind: Secret
+      name: chaos-mesh-webhook-certs
+      namespace: chaos-mesh
+      jsonPointers: [/data]
+    - kind: Secret
+      name: chaos-mesh-daemon-certs
+      namespace: chaos-mesh
+      jsonPointers: [/data]
+    - kind: Secret
+      name: chaos-mesh-daemon-client-certs
+      namespace: chaos-mesh
+      jsonPointers: [/data]
+    - kind: Secret
+      name: chaos-mesh-chaos-controller-manager-control-plane
+      namespace: chaos-mesh
+      jsonPointers: [/data]
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions: [.webhooks[]?.clientConfig.caBundle]
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions: [.webhooks[]?.clientConfig.caBundle]
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true

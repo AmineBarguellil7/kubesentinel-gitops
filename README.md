@@ -16,6 +16,7 @@ apps/
   logging-app.yaml         Loki Helm chart, single binary, filesystem storage
   alloy-app.yaml           Grafana Alloy Helm chart, DaemonSet shipping pod logs to Loki
   metrics-server-app.yaml  metrics-server Helm chart, for `kubectl top`
+  chaos-mesh-app.yaml      Chaos Mesh Helm chart (fault injection), namespace chaos-mesh
 ```
 
 - `bootstrap/root-app.yaml` is the only manifest applied from outside Git. It watches the top level
@@ -90,6 +91,25 @@ Anywhere else it belongs in a Secret (`grafana.admin.existingSecret`).
   into a ConfigMap; edit the JSON and push to change the dashboard.
 
 Logs in Grafana: Explore, datasource Loki, for example `{namespace="demo", app="payments"}`.
+
+## Chaos Mesh
+
+`apps/chaos-mesh-app.yaml` installs Chaos Mesh in the `chaos-mesh` namespace, configured for kind
+(containerd at `/run/containerd/containerd.sock`), with one controller replica and small resources.
+
+- **Only `demo` can be targeted.** `enableFilterNamespace` is on, so Chaos Mesh only injects faults
+  into namespaces annotated `chaos-mesh.org/inject: enabled`. `apps/demo/namespace.yaml` carries
+  that annotation; no other namespace does.
+- **Experiments are not in this repo.** The scenarios live in `chaos/scenarios/` in the
+  kubesentinel repo and are applied with `make chaos SCENARIO=...`. If they were here, Argo CD would
+  re-create every experiment as soon as it ended or was deleted.
+- **The dashboard has no login** (`dashboard.securityMode: false`). Acceptable only because the
+  cluster is local: anyone who reaches the port can create experiments with the controller's
+  permissions. Open it with
+  `kubectl -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333` (http://localhost:2333).
+- The chart generates new TLS certificates every time it is rendered. The Application ignores
+  differences on those Secrets and on the webhooks' `caBundle`, so the certificates created at
+  install time stay in place instead of being rotated on each sync.
 
 ## Notes
 
