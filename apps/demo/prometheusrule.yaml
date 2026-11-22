@@ -38,3 +38,21 @@ spec:
               Pod {{ $labels.pod }} of service {{ $labels.container }} in namespace
               {{ $labels.namespace }} restarted {{ $value | printf "%.0f" }} times in the
               last 10 minutes (threshold: 2).
+        - alert: DemoServiceDown
+          # No scrape target of the service is up: either every scrape fails (up == 0), or the
+          # target is gone entirely because the service has no ready endpoints (absent).
+          # A service with no pods produces no requests and so never trips DemoHighErrorRate.
+          expr: |
+            max by (namespace, service) (up{namespace="demo", service=~"api|orders|payments"}) == 0
+              or absent(up{namespace="demo", service="api"})
+              or absent(up{namespace="demo", service="orders"})
+              or absent(up{namespace="demo", service="payments"})
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Demo service {{ $labels.service }} is down"
+            description: >-
+              Prometheus has no healthy target for service {{ $labels.service }} in namespace
+              {{ $labels.namespace }} for 1 minute: its pods are not ready, not running, or
+              /metrics is failing.

@@ -79,12 +79,13 @@ Anywhere else it belongs in a Secret (`grafana.admin.existingSecret`).
 - `apps/demo/servicemonitor.yaml` scrapes `/metrics` on the `http` port of `api`, `orders` and
   `payments` every 15s. In queries the `service` label is the Kubernetes Service name
   (`api`, `orders`, `payments`).
-- `apps/demo/prometheusrule.yaml` defines two alerts:
+- `apps/demo/prometheusrule.yaml` defines three alerts:
 
   | Alert | Fires when | Severity |
   | --- | --- | --- |
   | `DemoHighErrorRate` | more than 10% of a service's requests over 2m are 5xx, for 1m | critical |
   | `DemoPodCrashLooping` | a demo pod restarted more than 2 times in 10m | warning |
+  | `DemoServiceDown` | api, orders or payments has no target up (scrape failing, or no pods at all) for 1m | critical |
 
 - `apps/demo/dashboards/demo-shop.json` is the Grafana dashboard "KubeSentinel - Demo shop"
   (requests/s, 5xx rate and share, p95 latency, pod restarts, memory per pod). Kustomize turns it
