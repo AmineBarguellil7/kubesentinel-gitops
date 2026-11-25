@@ -3,6 +3,16 @@
 Desired state of the `kubesentinel` cluster, synced by Argo CD. Application source code and the
 cluster/Argo CD installation live in the [kubesentinel](https://github.com/AmineBarguellil7/kubesentinel) repo.
 
+## MVP scope
+
+The platform is trimmed to the minimum to keep RAM low on a laptop:
+
+- **Running:** the demo shop, Prometheus, Alertmanager, node-exporter, kube-state-metrics,
+  metrics-server, and the three demo alerts.
+- **Off:** Grafana (one-line switch, see [Re-enabling Grafana](#re-enabling-grafana)). The demo
+  dashboard JSON stays in the repo.
+- **Removed:** Loki, Alloy (logs) and Chaos Mesh. They are in the Git history if needed again.
+
 ## Layout
 
 ```
@@ -12,11 +22,8 @@ apps/
   demo-app.yaml            Demo shop -> apps/demo
   demo/                    Kustomize manifests: namespace, redis, payments, orders, api,
                            ServiceMonitor, PrometheusRule, Grafana dashboard
-  monitoring-app.yaml      kube-prometheus-stack Helm chart (Prometheus, Alertmanager, Grafana)
-  logging-app.yaml         Loki Helm chart, single binary, filesystem storage
-  alloy-app.yaml           Grafana Alloy Helm chart, DaemonSet shipping pod logs to Loki
+  monitoring-app.yaml      kube-prometheus-stack Helm chart (Prometheus, Alertmanager; Grafana off)
   metrics-server-app.yaml  metrics-server Helm chart, for `kubectl top`
-  chaos-mesh-app.yaml      Chaos Mesh Helm chart (fault injection), namespace chaos-mesh
 ```
 
 - `bootstrap/root-app.yaml` is the only manifest applied from outside Git. It watches the top level
@@ -42,22 +49,20 @@ kubectl -n argocd annotate application demo argocd.argoproj.io/refresh=normal --
 
 1. Put its manifests in `apps/<name>/`.
 2. Add `apps/<name>-app.yaml` (copy `demo-app.yaml`, change the name, path and namespace). For a
-   Helm chart, skip step 1 and copy `logging-app.yaml` instead.
+   Helm chart, skip step 1 and copy `metrics-server-app.yaml` instead.
 3. Commit and push; the root app creates it.
 
 ## Observability
 
 Everything runs in the `monitoring` namespace (metrics-server in `kube-system`) and is sized for a
-laptop: Prometheus keeps 2 days of metrics, Loki 48 hours of logs, every container has small
-requests and limits. Prometheus, Alertmanager and Grafana use `emptyDir`, so their data is lost when
-the pod is recreated; Loki has a 2Gi volume.
+laptop: Prometheus keeps 2 days of metrics and every container has small requests and limits.
+Prometheus and Alertmanager use `emptyDir`, so their data is lost when the pod is recreated.
 
 | Component | What it does here |
 | --- | --- |
 | Prometheus | Scrapes the cluster and the demo services. Discovers `ServiceMonitor`, `PodMonitor` and `PrometheusRule` objects in every namespace, whatever their labels. |
 | Alertmanager | Receives the alerts. No receiver is configured: alerts are only visible in its UI/API. |
-| Grafana | Datasources: Prometheus (default), Alertmanager, Loki. Loads every ConfigMap labelled `grafana_dashboard: "1"` from any namespace. |
-| Loki + Alloy | Alloy runs on each node, tails `/var/log/pods` and pushes to Loki with the labels `namespace`, `pod`, `container`, `app`, `node`. |
+| Grafana | **Disabled** (`grafana.enabled: false`). When on: datasources Prometheus (default) and Alertmanager; loads every ConfigMap labelled `grafana_dashboard: "1"` from any namespace. |
 
 etcd, kube-scheduler, kube-controller-manager and kube-proxy scraping (and their alert rules) is
 disabled: kind does not expose those endpoints.
@@ -65,14 +70,29 @@ disabled: kind does not expose those endpoints.
 ### Access
 
 ```bash
-kubectl -n monitoring port-forward svc/monitoring-grafana 3001:80                       # http://localhost:3001
 kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090  # http://localhost:9090
 kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093:9093
 ```
 
-Grafana login: `admin` / `kubesentinel`. The password is a plain Helm value in
-`apps/monitoring-app.yaml`, which is acceptable only because this cluster is local and throwaway.
-Anywhere else it belongs in a Secret (`grafana.admin.existingSecret`).
+### Re-enabling Grafana
+
+One line in `apps/monitoring-app.yaml`:
+
+```yaml
+        grafana:
+          enabled: true   # was false
+```
+
+Commit and push. Argo CD deploys Grafana, and its sidecar picks up the demo dashboard ConfigMap
+(still generated from `apps/demo/dashboards/demo-shop.json`). Then:
+
+```bash
+kubectl -n monitoring port-forward svc/monitoring-grafana 3001:80   # http://localhost:3001
+```
+
+Login: `admin` / `kubesentinel`. The password is a plain Helm value in `apps/monitoring-app.yaml`,
+which is acceptable only because this cluster is local and throwaway. Anywhere else it belongs in a
+Secret (`grafana.admin.existingSecret`). Set it back to `false` after recording.
 
 ### Demo shop
 
@@ -89,29 +109,8 @@ Anywhere else it belongs in a Secret (`grafana.admin.existingSecret`).
 
 - `apps/demo/dashboards/demo-shop.json` is the Grafana dashboard "KubeSentinel - Demo shop"
   (requests/s, 5xx rate and share, p95 latency, pod restarts, memory per pod). Kustomize turns it
-  into a ConfigMap; edit the JSON and push to change the dashboard.
-
-Logs in Grafana: Explore, datasource Loki, for example `{namespace="demo", app="payments"}`.
-
-## Chaos Mesh
-
-`apps/chaos-mesh-app.yaml` installs Chaos Mesh in the `chaos-mesh` namespace, configured for kind
-(containerd at `/run/containerd/containerd.sock`), with one controller replica and small resources.
-
-- **Only `demo` can be targeted.** `enableFilterNamespace` is on, so Chaos Mesh only injects faults
-  into namespaces annotated `chaos-mesh.org/inject: enabled`. `apps/demo/namespace.yaml` carries
-  that annotation; no other namespace does.
-- **Experiments are not in this repo.** The scenarios live in `chaos/scenarios/` in the
-  kubesentinel repo and are applied with `make chaos SCENARIO=...`. If they were here, Argo CD would
-  re-create every experiment as soon as it ended or was deleted.
-- **The dashboard has no login** (`dashboard.securityMode: false`). Acceptable only because the
-  cluster is local: anyone who reaches the port can create experiments with the controller's
-  permissions. Open it with
-  `kubectl -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333` (http://localhost:2333).
-- The chart generates new TLS certificates and a random `rollme` pod annotation every time it is
-  rendered. The Application ignores differences on those Secrets, the webhooks' `caBundle` and the
-  `rollme` annotation, so the install-time certificates stay in place and the controller and
-  daemon are not restarted on every sync.
+  into a ConfigMap, which is still deployed while Grafana is off (it costs nothing), so the
+  dashboard is there as soon as Grafana is re-enabled.
 
 ## Notes
 

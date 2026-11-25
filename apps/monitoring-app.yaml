@@ -1,5 +1,5 @@
-# kube-prometheus-stack: Prometheus Operator, Prometheus, Alertmanager, Grafana,
-# kube-state-metrics and node-exporter. Sized for a laptop kind cluster.
+# kube-prometheus-stack: Prometheus Operator, Prometheus, Alertmanager, kube-state-metrics
+# and node-exporter. Grafana is off for the MVP (see grafana.enabled). Sized for a laptop kind cluster.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -91,6 +91,8 @@ spec:
                 memory: 96Mi
 
         grafana:
+          # Off to save RAM (MVP). Set to true to bring Grafana and the demo dashboard back.
+          enabled: false
           # Local cluster only. Never reuse this pattern outside a laptop.
           adminUser: admin
           adminPassword: kubesentinel
@@ -112,13 +114,6 @@ spec:
             dashboards:
               # Dashboards are ConfigMaps labelled grafana_dashboard=1, in any namespace.
               searchNamespace: ALL
-          additionalDataSources:
-            - name: Loki
-              uid: loki
-              type: loki
-              access: proxy
-              url: http://loki.monitoring.svc:3100
-              isDefault: false
 
         kube-state-metrics:
           resources:
