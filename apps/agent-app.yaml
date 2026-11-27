@@ -1,0 +1,24 @@
+# KubeSentinel agent: Alertmanager webhook -> evidence -> AI diagnosis -> Slack. Read-only.
+# Its Secret (kubesentinel-agent) is NOT in Git: `make agent-secrets` in the kubesentinel repo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AmineBarguellil7/kubesentinel-gitops.git
+    targetRevision: main
+    path: apps/agent
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kubesentinel
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

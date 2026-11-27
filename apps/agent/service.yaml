@@ -1,0 +1,15 @@
+# Alertmanager posts to http://agent.kubesentinel.svc:8080/alert
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: kubesentinel
+  labels:
+    app: agent
+spec:
+  selector:
+    app: agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -80,6 +80,50 @@ spec:
                 memory: 1Gi
 
         alertmanager:
+          # Replaces the chart's default config, so its inhibit rules and Watchdog route are
+          # repeated here. Alerts from the demo namespace go to the KubeSentinel agent, one
+          # webhook call (and one Slack message) per alert name + service; everything else,
+          # Watchdog included, goes nowhere.
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              receiver: "null"
+              group_by: [namespace]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 12h
+              routes:
+                - receiver: "null"
+                  matchers:
+                    - alertname = "Watchdog"
+                - receiver: kubesentinel-agent
+                  matchers:
+                    - namespace = "demo"
+                  group_by: [namespace, alertname, service]
+                  group_wait: 30s
+                  group_interval: 2m
+                  repeat_interval: 4h
+            receivers:
+              - name: "null"
+              - name: kubesentinel-agent
+                webhook_configs:
+                  - url: http://agent.kubesentinel.svc:8080/alert
+                    send_resolved: true
+                    max_alerts: 20
+            inhibit_rules:
+              - source_matchers: [severity = critical]
+                target_matchers: [severity =~ warning|info]
+                equal: [namespace, alertname]
+              - source_matchers: [severity = warning]
+                target_matchers: [severity = info]
+                equal: [namespace, alertname]
+              - source_matchers: [alertname = InfoInhibitor]
+                target_matchers: [severity = info]
+                equal: [namespace]
+              - target_matchers: [alertname = InfoInhibitor]
+            templates:
+              - /etc/alertmanager/config/*.tmpl
           alertmanagerSpec:
             retention: 24h
             resources:
