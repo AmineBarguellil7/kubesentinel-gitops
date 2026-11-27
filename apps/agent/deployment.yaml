@@ -37,8 +37,11 @@ spec:
             - secretRef:
                 name: kubesentinel-agent
           env:
+            # llama-3.3-70b-versatile (the code's default) is not available to this Groq account
+            # (404 model_not_found). gpt-oss-120b supports the tool calling used for the
+            # structured diagnosis.
             - name: GROQ_MODEL
-              value: llama-3.3-70b-versatile
+              value: openai/gpt-oss-120b
             - name: PROMETHEUS_URL
               value: http://monitoring-kube-prometheus-prometheus.monitoring:9090
             - name: TARGET_NAMESPACE
