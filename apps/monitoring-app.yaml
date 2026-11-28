@@ -81,9 +81,10 @@ spec:
 
         alertmanager:
           # Replaces the chart's default config, so its inhibit rules and Watchdog route are
-          # repeated here. Alerts from the demo namespace go to the KubeSentinel agent, one
-          # webhook call (and one Slack message) per alert name + service; everything else,
-          # Watchdog included, goes nowhere.
+          # repeated here. Alerts from the demo namespace go to the KubeSentinel agent grouped by
+          # namespace only: alerts that fire together are ONE incident (one webhook group, one
+          # Slack message, one diagnosis, at most one fix PR). Everything else, Watchdog
+          # included, goes nowhere.
           config:
             global:
               resolve_timeout: 5m
@@ -100,9 +101,9 @@ spec:
                 - receiver: kubesentinel-agent
                   matchers:
                     - namespace = "demo"
-                  group_by: [namespace, alertname, service]
+                  group_by: [namespace]
                   group_wait: 30s
-                  group_interval: 2m
+                  group_interval: 5m
                   repeat_interval: 4h
             receivers:
               - name: "null"

@@ -8,8 +8,8 @@ cluster/Argo CD installation live in the [kubesentinel](https://github.com/Amine
 The platform is trimmed to the minimum to keep RAM low on a laptop:
 
 - **Running:** the demo shop, Prometheus, Alertmanager, node-exporter, kube-state-metrics,
-  metrics-server, the three demo alerts, and the KubeSentinel agent (alert -> AI diagnosis ->
-  Slack, read-only).
+  metrics-server, the three demo alerts, and the KubeSentinel agent (incident -> AI diagnosis ->
+  fix PR -> approval in Slack; read-only on the cluster).
 - **Off:** Grafana (one-line switch, see [Re-enabling Grafana](#re-enabling-grafana)). The demo
   dashboard JSON stays in the repo.
 - **Removed:** Loki, Alloy (logs) and Chaos Mesh. They are in the Git history if needed again.
@@ -64,7 +64,7 @@ Prometheus and Alertmanager use `emptyDir`, so their data is lost when the pod i
 | Component | What it does here |
 | --- | --- |
 | Prometheus | Scrapes the cluster and the demo services. Discovers `ServiceMonitor`, `PodMonitor` and `PrometheusRule` objects in every namespace, whatever their labels. |
-| Alertmanager | Receives the alerts. Alerts with `namespace="demo"` go to the KubeSentinel agent's webhook (see below); everything else, Watchdog included, goes to the `null` receiver. |
+| Alertmanager | Receives the alerts. Alerts with `namespace="demo"` go to the KubeSentinel agent's webhook, grouped by namespace (see below); everything else, Watchdog included, goes to the `null` receiver. |
 | Grafana | **Disabled** (`grafana.enabled: false`). When on: datasources Prometheus (default) and Alertmanager; loads every ConfigMap labelled `grafana_dashboard: "1"` from any namespace. |
 
 etcd, kube-scheduler, kube-controller-manager and kube-proxy scraping (and their alert rules) is
@@ -118,29 +118,50 @@ Secret (`grafana.admin.existingSecret`). Set it back to `false` after recording.
 ## KubeSentinel agent
 
 `apps/agent/` runs the agent (code in `agent/` of the kubesentinel repo): one small pod in the
-`kubesentinel` namespace that turns a demo alert into a Slack message with an AI diagnosis.
+`kubesentinel` namespace that turns demo alerts into ONE Slack incident with an AI diagnosis and,
+when it can, a fix PR on this repo that a human approves or rejects from Slack.
 
 ```
-Alertmanager --webhook--> agent /alert --> gather_evidence --> diagnose (Groq) --> notify (Slack)
+Alertmanager --webhook--> agent /alert
+  gather_evidence -> diagnose (Groq) -> propose_fix (LLM + code reviewer -> PR) -> notify (Slack)
+Slack "Approve and merge" -> squash-merge PR -> Argo CD deploys -> agent watches the rollout
 ```
 
-- **Routing** (`alertmanager.config` in `apps/monitoring-app.yaml`): alerts with
-  `namespace="demo"` are grouped by `namespace, alertname, service` and posted to
-  `http://agent.kubesentinel.svc:8080/alert` after `group_wait: 30s`, with `send_resolved: true`.
-  Each group gets one Slack message; when it resolves, the agent replies "Resolved" in that
-  message's thread. The thread mapping is in memory, so a restart forgets it (the "Resolved" is
-  then posted as a new message).
-- **Read-only.** The `agent` ServiceAccount is bound to a Role in `demo` with only
+- **One incident, one message.** `alertmanager.config` in `apps/monitoring-app.yaml` groups
+  `namespace="demo"` alerts by `namespace` only (`group_wait: 30s`, `group_interval: 5m`,
+  `send_resolved: true`), so alerts that fire together arrive as one group. The agent posts one
+  message per group listing every firing alert, updates it when alerts join or clear, and replies
+  in its thread when the group resolves. One incident = one diagnosis = at most one PR.
+- **Root cause, not nearest dependency.** The prompt carries the call chain
+  (api -> orders -> payments, orders -> redis), and code computes which services are themselves
+  broken. The suspected service must be the first broken one in the chain; otherwise the model is
+  asked again, then overridden with low confidence.
+- **Fix PRs.** The LLM proposes one change; a plain-code reviewer accepts only, for a Deployment
+  in a file under `apps/demo/`: `replicas` (1-5), the image **tag**, cpu/memory requests and
+  limits, literal env var values, httpGet probe paths/ports. The old value must match `main`, and
+  the diff must be at most 4 changed lines. Accepted changes are committed (formatting preserved)
+  on a `fix/<alertname>-<incident id>` branch and opened as a PR with the diagnosis and the diff.
+  An open KubeSentinel PR for the same change is reused, never duplicated.
+- **Approval in Slack** (Socket Mode, no public endpoint). The incident message shows the PR link,
+  the diff and two buttons. *Approve and merge* squash-merges the PR, deletes the branch, and the
+  agent then watches the Deployment (read-only) until it runs the new value with all replicas
+  ready, and posts the time to recovery in the thread. *Reject* closes the PR and deletes the
+  branch. Each button works once. `SLACK_APPROVERS` (Slack user IDs) can restrict who may click.
+- **Never pushes to main.** The agent writes only to `fix/*` branches; `main` changes only through
+  the merge of a PR a human approved. Branch protection on `main` (require a PR) is a good second
+  guard.
+- **Read-only on the cluster.** The `agent` ServiceAccount is bound to a Role in `demo` with only
   `get/list/watch` on pods, pods/log, events, deployments and replicasets. No Secrets, no write
-  verbs, no ClusterRole. The suggested fix in Slack is text; nothing is applied.
+  verbs, no ClusterRole.
 - **Secret not in Git.** The Deployment reads `GROQ_API_KEY`, `SLACK_BOT_TOKEN`,
-  `SLACK_APP_TOKEN` and `SLACK_CHANNEL_ID` from the Secret `kubesentinel-agent`, created from
-  local files by `make agent-secrets` in the kubesentinel repo. Until it exists the pod stays in
-  `CreateContainerConfigError`.
-- **Image** `kubesentinel-agent:dev` is built and loaded into kind by `make images`, like the
-  demo images.
-- Non-secret settings are plain env vars in `apps/agent/deployment.yaml`: `GROQ_MODEL`,
-  `PROMETHEUS_URL`, `TARGET_NAMESPACE`.
+  `SLACK_APP_TOKEN`, `SLACK_CHANNEL_ID` and `GITHUB_TOKEN` (fine-grained: this repo only,
+  contents + pull requests read/write) from the Secret `kubesentinel-agent`, created from local
+  files by `make agent-secrets` in the kubesentinel repo.
+- **State is in memory** (MVP): a restart forgets open incidents; their buttons then answer
+  "not known any more" and the PR has to be handled in GitHub.
+- Image `kubesentinel-agent:dev` is built and loaded into kind by `make images`. Non-secret
+  settings are env vars in `apps/agent/deployment.yaml`: `GROQ_MODEL`, `PROMETHEUS_URL`,
+  `TARGET_NAMESPACE`, `GITOPS_REPO`, `GITOPS_BASE`, `SLACK_APPROVERS`.
 
 Logs: `make agent-logs` in the kubesentinel repo.
 

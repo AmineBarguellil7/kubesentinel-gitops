@@ -31,17 +31,24 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          # GROQ_API_KEY, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID. Created by
-          # `make agent-secrets`, never committed.
+          # GROQ_API_KEY, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID, GITHUB_TOKEN.
+          # Created by `make agent-secrets`, never committed.
           envFrom:
             - secretRef:
                 name: kubesentinel-agent
           env:
-            # llama-3.3-70b-versatile (the code's default) is not available to this Groq account
-            # (404 model_not_found). gpt-oss-120b supports the tool calling used for the
-            # structured diagnosis.
             - name: GROQ_MODEL
               value: openai/gpt-oss-120b
+            # Where fix PRs are opened. The agent writes only to fix/* branches; main changes
+            # only when a human clicks "Approve and merge" in Slack.
+            - name: GITOPS_REPO
+              value: AmineBarguellil7/kubesentinel-gitops
+            - name: GITOPS_BASE
+              value: main
+            # Optional: Slack user IDs (space separated) allowed to approve/reject. Empty = anyone
+            # in the channel.
+            - name: SLACK_APPROVERS
+              value: ""
             - name: PROMETHEUS_URL
               value: http://monitoring-kube-prometheus-prometheus.monitoring:9090
             - name: TARGET_NAMESPACE
