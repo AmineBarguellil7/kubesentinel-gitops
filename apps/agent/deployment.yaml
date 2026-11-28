@@ -45,10 +45,10 @@ spec:
               value: AmineBarguellil7/kubesentinel-gitops
             - name: GITOPS_BASE
               value: main
-            # Optional: Slack user IDs (space separated) allowed to approve/reject. Empty = anyone
-            # in the channel.
+            # Slack user IDs (space separated) allowed to approve/reject fixes. Empty = anyone in
+            # the channel.
             - name: SLACK_APPROVERS
-              value: ""
+              value: U0CMB55AYRK
             - name: PROMETHEUS_URL
               value: http://monitoring-kube-prometheus-prometheus.monitoring:9090
             - name: TARGET_NAMESPACE
